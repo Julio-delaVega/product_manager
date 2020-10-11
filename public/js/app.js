@@ -2129,10 +2129,34 @@ __webpack_require__.r(__webpack_exports__);
 //
 //
 //
+//
+//
+//
+//
+//
+//
+//
+//
+//
+//
+//
+//
+//
+//
+//
+//
+//
+//
+//
+//
+//
+//
+//
 /* harmony default export */ __webpack_exports__["default"] = ({
   data: function data() {
     return {
       products: [],
+      categories: [],
       order: {
         dir: 1,
         colName: "name"
@@ -2145,10 +2169,12 @@ __webpack_require__.r(__webpack_exports__);
       focusedProduct: {
         id: null,
         name: null,
-        category: null,
+        category_id: null,
         price: null
       },
-      editing: false
+      editing: false,
+      deletedProductId: null,
+      errors: {}
     };
   },
   computed: {
@@ -2191,7 +2217,7 @@ __webpack_require__.r(__webpack_exports__);
       return this.productsSorted.slice(start, end);
     },
     sortType: function sortType() {
-      return this.order.dir == 1 ? "ascending" : "descending";
+      return this.order.dir === 1 ? "ascending" : "descending";
     },
     searching: function searching() {
       return this.filters.name.length > 0;
@@ -2200,29 +2226,15 @@ __webpack_require__.r(__webpack_exports__);
       return Math.ceil(this.productsSorted.length / this.perPage);
     },
     firstLastPage: function firstLastPage() {
-      if (this.currPage == 1) {
+      if (this.currPage === 1) {
         return "first";
       }
 
-      if (this.currPage == this.pages) {
+      if (this.currPage === this.pages) {
         return "last";
       }
 
       return null;
-    },
-    categories: function categories() {
-      var categories = this.products.map(function (p) {
-        return p.category;
-      });
-      return Array.from(new Set(categories)).sort(function (left, right) {
-        if (left < right) {
-          return -1;
-        } else if (left > right) {
-          return 1;
-        } else {
-          return 0;
-        }
-      });
     },
     modalTitle: function modalTitle() {
       return this.editing ? "Update Product" : "Add New Product";
@@ -2230,6 +2242,7 @@ __webpack_require__.r(__webpack_exports__);
   },
   created: function created() {
     this.fetchProducts();
+    this.fetchCategories();
   },
   methods: {
     fetchProducts: function fetchProducts() {
@@ -2239,12 +2252,19 @@ __webpack_require__.r(__webpack_exports__);
         _this.products = res.data.data;
       });
     },
+    fetchCategories: function fetchCategories() {
+      var _this2 = this;
+
+      axios.get("/api/categories").then(function (res) {
+        _this2.categories = res.data.data;
+      });
+    },
     sort: function sort(colName) {
       this.order.colName = colName;
       this.order.dir *= -1;
     },
     classes: function classes(colName) {
-      return ["sort-control", colName == this.order.colName ? this.sortType : ""];
+      return ["sort-control", colName === this.order.colName ? this.sortType : ""];
     },
     clearSearch: function clearSearch() {
       this.filters.name = "";
@@ -2266,7 +2286,7 @@ __webpack_require__.r(__webpack_exports__);
       this.focusedProduct = {
         id: null,
         name: null,
-        category: null,
+        category_id: null,
         price: null
       };
       this.editing = false;
@@ -2276,39 +2296,58 @@ __webpack_require__.r(__webpack_exports__);
       this.editing = true;
     },
     saveProduct: function saveProduct() {
-      var _this2 = this;
+      var _this3 = this;
+
+      var pkg = Object.assign({}, this.focusedProduct);
+      pkg.price *= 100;
 
       if (this.editing) {
-        var index = this.products.findIndex(function (p) {
-          return p.id == _this2.focusedProduct.id;
-        });
-        this.$set(this.products, index, this.focusedProduct);
-      } else {
-        var id = this.products.reduce(function (max, p) {
-          return p.id > max ? p.id : max;
-        }, 0);
-        id++;
-        this.focusedProduct.id = id;
-        this.products.push(this.focusedProduct);
-      }
+        axios.patch("/api/products/".concat(pkg.id), pkg).then(function (res) {
+          console.log(_this3);
 
-      this.focusedProduct = {
-        id: null,
-        name: null,
-        category: null,
-        price: null
-      };
-      this.editing = false;
-      $(this.$refs.productModal).modal("hide");
+          var index = _this3.products.findIndex(function (el) {
+            return el.id === res.data.data.id;
+          });
+
+          _this3.products.splice(index, 1, res.data.data);
+
+          _this3.editing = false;
+          _this3.errors = {};
+          $(_this3.$refs.productModal).modal("hide");
+        })["catch"](function (err) {
+          _this3.errors = err.response.data.errors;
+        });
+      } else {
+        axios.post("/api/products", pkg).then(function (res) {
+          _this3.products.unshift(res.data.data);
+
+          _this3.errors = {};
+          $(_this3.$refs.productModal).modal("hide");
+        })["catch"](function (err) {
+          _this3.errors = err.response.data.errors;
+        });
+      }
     },
     deleteProduct: function deleteProduct(product) {
+      var _this4 = this;
+
       var sure = confirm("Are you sure you want to delete the product with name \"".concat(product.name, "\""));
 
       if (sure) {
-        var index = this.products.findIndex(function (p) {
-          return p.id == product.id;
+        axios["delete"]("/api/products/".concat(product.id)).then(function (res) {
+          _this4.deletedProductId = res.data.data.id;
+          new Promise(function (resolve) {
+            return setTimeout(resolve, 1000);
+          }).then(function () {
+            _this4.deletedProductId = null;
+
+            var index = _this4.products.findIndex(function (el) {
+              return el.id === res.data.data.id;
+            });
+
+            _this4.products.splice(index, 1);
+          });
         });
-        this.products.splice(index, 1);
       }
     }
   },
@@ -38041,54 +38080,63 @@ var render = function() {
           _vm._v(" "),
           _c(
             "tbody",
-            _vm._l(_vm.productsPaginated, function(product, index) {
-              return _c("tr", { key: index }, [
-                _c("td", [_vm._v(_vm._s(product.name))]),
-                _vm._v(" "),
-                _c("td", [_vm._v(_vm._s(product.category))]),
-                _vm._v(" "),
-                _c("td", { staticClass: "text-right" }, [
-                  _vm._v(
-                    "\n                            " +
-                      _vm._s(product.price.toFixed(2)) +
-                      "\n                        "
-                  )
-                ]),
-                _vm._v(" "),
-                _c("td", { staticClass: "text-right" }, [
-                  _c(
-                    "button",
-                    {
-                      staticClass: "btn btn-sm btn-outline-secondary",
-                      attrs: {
-                        type: "button",
-                        "data-toggle": "modal",
-                        "data-target": "#product-modal"
-                      },
-                      on: {
-                        click: function($event) {
-                          return _vm.editProduct(product)
-                        }
-                      }
-                    },
-                    [_c("i", { staticClass: "fas fa-edit" })]
-                  ),
+            _vm._l(_vm.productsPaginated, function(product) {
+              return _c(
+                "tr",
+                {
+                  key: product.id,
+                  class: {
+                    "table-danger": product.id === _vm.deletedProductId
+                  }
+                },
+                [
+                  _c("td", [_vm._v(_vm._s(product.name))]),
                   _vm._v(" "),
-                  _c(
-                    "button",
-                    {
-                      staticClass: "btn btn-sm btn-outline-danger",
-                      attrs: { type: "button" },
-                      on: {
-                        click: function($event) {
-                          return _vm.deleteProduct(product)
+                  _c("td", [_vm._v(_vm._s(product.category))]),
+                  _vm._v(" "),
+                  _c("td", { staticClass: "text-right" }, [
+                    _vm._v(
+                      "\n                            " +
+                        _vm._s(product.price.toFixed(2)) +
+                        "\n                        "
+                    )
+                  ]),
+                  _vm._v(" "),
+                  _c("td", { staticClass: "text-right" }, [
+                    _c(
+                      "button",
+                      {
+                        staticClass: "btn btn-sm btn-outline-secondary",
+                        attrs: {
+                          type: "button",
+                          "data-toggle": "modal",
+                          "data-target": "#product-modal"
+                        },
+                        on: {
+                          click: function($event) {
+                            return _vm.editProduct(product)
+                          }
                         }
-                      }
-                    },
-                    [_c("i", { staticClass: "fas fa-times" })]
-                  )
-                ])
-              ])
+                      },
+                      [_c("i", { staticClass: "fas fa-edit" })]
+                    ),
+                    _vm._v(" "),
+                    _c(
+                      "button",
+                      {
+                        staticClass: "btn btn-sm btn-outline-danger",
+                        attrs: { type: "button" },
+                        on: {
+                          click: function($event) {
+                            return _vm.deleteProduct(product)
+                          }
+                        }
+                      },
+                      [_c("i", { staticClass: "fas fa-times" })]
+                    )
+                  ])
+                ]
+              )
             }),
             0
           )
@@ -38105,7 +38153,7 @@ var render = function() {
                 "li",
                 {
                   staticClass: "page-item",
-                  class: { disabled: _vm.firstLastPage == "first" }
+                  class: { disabled: _vm.firstLastPage === "first" }
                 },
                 [
                   _c(
@@ -38131,7 +38179,7 @@ var render = function() {
                   {
                     key: index,
                     staticClass: "page-item",
-                    class: { active: page == _vm.currPage }
+                    class: { active: page === _vm.currPage }
                   },
                   [
                     _c(
@@ -38162,7 +38210,7 @@ var render = function() {
                 "li",
                 {
                   staticClass: "page-item",
-                  class: { disabled: _vm.firstLastPage == "last" }
+                  class: { disabled: _vm.firstLastPage === "last" }
                 },
                 [
                   _c(
@@ -38247,9 +38295,13 @@ var render = function() {
                         }
                       ],
                       staticClass: "form-control",
-                      attrs: { type: "text", required: "" },
+                      class: { "is-invalid": _vm.errors.name },
+                      attrs: { type: "text" },
                       domProps: { value: _vm.focusedProduct.name },
                       on: {
+                        focus: function($event) {
+                          delete _vm.errors.name
+                        },
                         input: function($event) {
                           if ($event.target.composing) {
                             return
@@ -38261,7 +38313,13 @@ var render = function() {
                           )
                         }
                       }
-                    })
+                    }),
+                    _vm._v(" "),
+                    _vm.errors.name
+                      ? _c("span", { staticClass: "invalid-feedback" }, [
+                          _vm._v(_vm._s(_vm.errors.name[0]))
+                        ])
+                      : _vm._e()
                   ]),
                   _vm._v(" "),
                   _c("div", { staticClass: "form-group" }, [
@@ -38274,13 +38332,18 @@ var render = function() {
                           {
                             name: "model",
                             rawName: "v-model",
-                            value: _vm.focusedProduct.category,
-                            expression: "focusedProduct.category"
+                            value: _vm.focusedProduct.category_id,
+                            expression: "focusedProduct.category_id"
                           }
                         ],
                         staticClass: "form-control",
-                        attrs: { required: "" },
+                        class: {
+                          "is-invalid": _vm.errors.category_id
+                        },
                         on: {
+                          focus: function($event) {
+                            delete _vm.errors.category_id
+                          },
                           change: function($event) {
                             var $$selectedVal = Array.prototype.filter
                               .call($event.target.options, function(o) {
@@ -38292,7 +38355,7 @@ var render = function() {
                               })
                             _vm.$set(
                               _vm.focusedProduct,
-                              "category",
+                              "category_id",
                               $event.target.multiple
                                 ? $$selectedVal
                                 : $$selectedVal[0]
@@ -38303,18 +38366,24 @@ var render = function() {
                       _vm._l(_vm.categories, function(category, index) {
                         return _c(
                           "option",
-                          { key: index, domProps: { value: category } },
+                          { key: index, domProps: { value: category.id } },
                           [
                             _vm._v(
                               "\n                                    " +
-                                _vm._s(category) +
+                                _vm._s(category.name) +
                                 "\n                                "
                             )
                           ]
                         )
                       }),
                       0
-                    )
+                    ),
+                    _vm._v(" "),
+                    _vm.errors.category_id
+                      ? _c("span", { staticClass: "invalid-feedback" }, [
+                          _vm._v(_vm._s(_vm.errors.category_id[0]))
+                        ])
+                      : _vm._e()
                   ]),
                   _vm._v(" "),
                   _c("div", { staticClass: "form-group" }, [
@@ -38331,9 +38400,13 @@ var render = function() {
                         }
                       ],
                       staticClass: "form-control",
-                      attrs: { type: "number", step: "any", required: "" },
+                      class: { "is-invalid": _vm.errors.price },
+                      attrs: { type: "number", step: "any" },
                       domProps: { value: _vm.focusedProduct.price },
                       on: {
+                        focus: function($event) {
+                          delete _vm.errors.price
+                        },
                         input: function($event) {
                           if ($event.target.composing) {
                             return
@@ -38348,7 +38421,13 @@ var render = function() {
                           return _vm.$forceUpdate()
                         }
                       }
-                    })
+                    }),
+                    _vm._v(" "),
+                    _vm.errors.price
+                      ? _c("span", { staticClass: "invalid-feedback" }, [
+                          _vm._v(_vm._s(_vm.errors.price[0]))
+                        ])
+                      : _vm._e()
                   ])
                 ]),
                 _vm._v(" "),

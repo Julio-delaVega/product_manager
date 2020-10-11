@@ -65,8 +65,11 @@
                     </thead>
                     <tbody>
                         <tr
-                            v-for="(product, index) in productsPaginated"
-                            :key="index"
+                            v-for="product in productsPaginated"
+                            :key="product.id"
+                            :class="{
+                                'table-danger': product.id === deletedProductId
+                            }"
                         >
                             <td>{{ product.name }}</td>
                             <td>{{ product.category }}</td>
@@ -100,7 +103,7 @@
                     <ul class="pagination justify-content-center">
                         <li
                             class="page-item"
-                            :class="{ disabled: firstLastPage == 'first' }"
+                            :class="{ disabled: firstLastPage === 'first' }"
                         >
                             <a
                                 class="page-link"
@@ -113,7 +116,7 @@
                             v-for="(page, index) in pages"
                             :key="index"
                             class="page-item"
-                            :class="{ active: page == currPage }"
+                            :class="{ active: page === currPage }"
                         >
                             <a
                                 class="page-link"
@@ -125,7 +128,7 @@
                         </li>
                         <li
                             class="page-item"
-                            :class="{ disabled: firstLastPage == 'last' }"
+                            :class="{ disabled: firstLastPage === 'last' }"
                         >
                             <a
                                 class="page-link"
@@ -169,25 +172,39 @@
                                 <input
                                     type="text"
                                     class="form-control"
+                                    :class="{ 'is-invalid': errors.name }"
                                     v-model="focusedProduct.name"
-                                    required
+                                    @focus="delete errors.name"
                                 />
+                                <span
+                                    v-if="errors.name"
+                                    class="invalid-feedback"
+                                    >{{ errors.name[0] }}</span
+                                >
                             </div>
                             <div class="form-group">
                                 <label>Category</label>
                                 <select
                                     class="form-control"
-                                    v-model="focusedProduct.category"
-                                    required
+                                    :class="{
+                                        'is-invalid': errors.category_id
+                                    }"
+                                    v-model="focusedProduct.category_id"
+                                    @focus="delete errors.category_id"
                                 >
                                     <option
                                         v-for="(category, index) in categories"
                                         :key="index"
-                                        :value="category"
+                                        :value="category.id"
                                     >
-                                        {{ category }}
+                                        {{ category.name }}
                                     </option>
                                 </select>
+                                <span
+                                    v-if="errors.category_id"
+                                    class="invalid-feedback"
+                                    >{{ errors.category_id[0] }}</span
+                                >
                             </div>
                             <div class="form-group">
                                 <label>Price ($)</label>
@@ -195,9 +212,15 @@
                                     type="number"
                                     step="any"
                                     class="form-control"
+                                    :class="{ 'is-invalid': errors.price }"
                                     v-model.number="focusedProduct.price"
-                                    required
+                                    @focus="delete errors.price"
                                 />
+                                <span
+                                    v-if="errors.price"
+                                    class="invalid-feedback"
+                                    >{{ errors.price[0] }}</span
+                                >
                             </div>
                         </div>
                         <div class="modal-footer">
@@ -224,6 +247,7 @@ export default {
     data() {
         return {
             products: [],
+            categories: [],
             order: {
                 dir: 1,
                 colName: "name"
@@ -236,10 +260,12 @@ export default {
             focusedProduct: {
                 id: null,
                 name: null,
-                category: null,
+                category_id: null,
                 price: null
             },
-            editing: false
+            editing: false,
+            deletedProductId: null,
+            errors: {}
         };
     },
     computed: {
@@ -277,7 +303,7 @@ export default {
             return this.productsSorted.slice(start, end);
         },
         sortType() {
-            return this.order.dir == 1 ? "ascending" : "descending";
+            return this.order.dir === 1 ? "ascending" : "descending";
         },
         searching() {
             return this.filters.name.length > 0;
@@ -286,25 +312,13 @@ export default {
             return Math.ceil(this.productsSorted.length / this.perPage);
         },
         firstLastPage() {
-            if (this.currPage == 1) {
+            if (this.currPage === 1) {
                 return "first";
             }
-            if (this.currPage == this.pages) {
+            if (this.currPage === this.pages) {
                 return "last";
             }
             return null;
-        },
-        categories() {
-            var categories = this.products.map(p => p.category);
-            return Array.from(new Set(categories)).sort((left, right) => {
-                if (left < right) {
-                    return -1;
-                } else if (left > right) {
-                    return 1;
-                } else {
-                    return 0;
-                }
-            });
         },
         modalTitle() {
             return this.editing ? "Update Product" : "Add New Product";
@@ -312,11 +326,17 @@ export default {
     },
     created() {
         this.fetchProducts();
+        this.fetchCategories();
     },
     methods: {
         fetchProducts() {
             axios.get("/api/products").then(res => {
                 this.products = res.data.data;
+            });
+        },
+        fetchCategories() {
+            axios.get("/api/categories").then(res => {
+                this.categories = res.data.data;
             });
         },
         sort(colName) {
@@ -326,7 +346,7 @@ export default {
         classes(colName) {
             return [
                 "sort-control",
-                colName == this.order.colName ? this.sortType : ""
+                colName === this.order.colName ? this.sortType : ""
             ];
         },
         clearSearch() {
@@ -349,7 +369,7 @@ export default {
             this.focusedProduct = {
                 id: null,
                 name: null,
-                category: null,
+                category_id: null,
                 price: null
             };
             this.editing = false;
@@ -359,35 +379,54 @@ export default {
             this.editing = true;
         },
         saveProduct() {
+            var pkg = Object.assign({}, this.focusedProduct);
+            pkg.price *= 100;
             if (this.editing) {
-                var index = this.products.findIndex(
-                    p => p.id == this.focusedProduct.id
-                );
-                this.$set(this.products, index, this.focusedProduct);
+                axios
+                    .patch(`/api/products/${pkg.id}`, pkg)
+                    .then(res => {
+                        console.log(this);
+                        var index = this.products.findIndex(
+                            el => el.id === res.data.data.id
+                        );
+                        this.products.splice(index, 1, res.data.data);
+                        this.editing = false;
+                        this.errors = {};
+                        $(this.$refs.productModal).modal("hide");
+                    })
+                    .catch(err => {
+                        this.errors = err.response.data.errors;
+                    });
             } else {
-                var id = this.products.reduce((max, p) => {
-                    return p.id > max ? p.id : max;
-                }, 0);
-                id++;
-                this.focusedProduct.id = id;
-                this.products.push(this.focusedProduct);
+                axios
+                    .post("/api/products", pkg)
+                    .then(res => {
+                        this.products.unshift(res.data.data);
+                        this.errors = {};
+                        $(this.$refs.productModal).modal("hide");
+                    })
+                    .catch(err => {
+                        this.errors = err.response.data.errors;
+                    });
             }
-            this.focusedProduct = {
-                id: null,
-                name: null,
-                category: null,
-                price: null
-            };
-            this.editing = false;
-            $(this.$refs.productModal).modal("hide");
         },
         deleteProduct(product) {
             var sure = confirm(
                 `Are you sure you want to delete the product with name "${product.name}"`
             );
             if (sure) {
-                var index = this.products.findIndex(p => p.id == product.id);
-                this.products.splice(index, 1);
+                axios.delete(`/api/products/${product.id}`).then(res => {
+                    this.deletedProductId = res.data.data.id;
+                    new Promise(resolve => setTimeout(resolve, 1000)).then(
+                        () => {
+                            this.deletedProductId = null;
+                            var index = this.products.findIndex(
+                                el => el.id === res.data.data.id
+                            );
+                            this.products.splice(index, 1);
+                        }
+                    );
+                });
             }
         }
     },
